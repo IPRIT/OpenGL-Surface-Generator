@@ -14,6 +14,18 @@ $(function() {
         }
     };
 
+    var getKnots = function(n, k) {
+        var size = n + k, knots = [];
+        var temp = 0;
+        for (var i = 0; i < size; ++i) {
+            if (i >= k && size - i >= k) {
+                ++temp;
+            }
+            knots.push(temp);
+        }
+        return knots;
+    };
+
     var createCtlArray = function(numHorizontal, numVertical) {
         var resultString = 'GLfloat ctlarray[' + numHorizontal + '][' + numVertical + '][4] = {\n',
             arrRows = [];
@@ -49,7 +61,7 @@ $(function() {
                         yCoord *= -1;
                         zCoord += 0.1;
                     } else {
-                        alert("С сожалению, для случая, когда количество вертикальных точек больше двух и больше количества горизонтальных, нет решения.");
+                        alert("К сожалению, для случая, когда количество вертикальных точек больше двух и больше количества горизонтальных, нет решения.");
                         return;
                     }
                 }
@@ -70,6 +82,7 @@ $(function() {
         verticalRank: $('#verticalRank'),
         colorSurface: $('#colorSurface'),
         colorBackground: $('#colorBackground'),
+        checkboxKnot: $('#flagKnot'),
         generateAction: $('#generateAction'),
         resultArea: $('#resultArea')
     };
@@ -80,7 +93,8 @@ $(function() {
             horizontalRank: parseInt(fields.horizontalRank.val()),
             verticalRank: parseInt(fields.verticalRank.val()),
             colorSurface: toRgbObject(fields.colorSurface.val()),
-            colorBackground: toRgbObject(fields.colorBackground.val())
+            colorBackground: toRgbObject(fields.colorBackground.val()),
+            isKnotGenerate: !fields.checkboxKnot.is(':checked')
         };
         if (values.horizontalRank > values.horizontalVertex || values.verticalRank > values.verticalVertex) {
             if (!confirm("Размерность превышает количество точек. Сгенерированный код работать не будет. Все равно сгенерировать?")) {
@@ -88,13 +102,14 @@ $(function() {
             }
         }
         var ctlArrayString = createCtlArray(values.horizontalVertex, values.verticalVertex);
-
-        var resultCode = '#include <stdlib.h>\n\
-#include <GL/glut.h>\n\
+        var resultCode = '';
+        if (values.isKnotGenerate) {
+            resultCode = '#include <stdlib.h>\n\
+#include <glut.h>\n\
 #include <vector>\n\
 #include <cstdio>\n\
 \n\
-        GLUnurbsObj* theNurb;\n\
+GLUnurbsObj* theNurb;\n\
 \n' + ctlArrayString + '\n\
 \n\
     void insertKnots(int n, int k, GLfloat *knots, int &size) {\n\
@@ -115,6 +130,7 @@ $(function() {
         glEnable(GL_COLOR_MATERIAL);\n\
         glEnable(GL_LIGHTING);\n\
         glEnable(GL_LIGHT0);\n\
+        glEnable(GL_AUTO_NORMAL);\n\
         gluNurbsProperty(theNurb, GLU_SAMPLING_TOLERANCE, 25.0);\n\
         glShadeModel(GL_SMOOTH);\n\
         glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, 1);\n\
@@ -159,6 +175,67 @@ $(function() {
         glutDisplayFunc(Display);\n\
         glutMainLoop();\n\
     }';
+        } else {
+            resultCode = '#include <stdlib.h>\n\
+#include <glut.h>\n\
+#include <vector>\n\
+#include <cstdio>\n\
+\n\
+GLUnurbsObj* theNurb;\n\
+\n' + ctlArrayString + '\n\
+\n\
+    void init() {\n\
+        glClearColor(' + values.colorBackground.r + ', ' + values.colorBackground.g + ', ' + values.colorBackground.b + ', 1);\n\
+        theNurb = gluNewNurbsRenderer();\n\
+        glEnable(GL_DEPTH_TEST);\n\
+        glEnable(GL_COLOR_MATERIAL);\n\
+        glEnable(GL_LIGHTING);\n\
+        glEnable(GL_LIGHT0);\n\
+        glEnable(GL_AUTO_NORMAL);\n\
+        gluNurbsProperty(theNurb, GLU_SAMPLING_TOLERANCE, 25.0);\n\
+        glShadeModel(GL_SMOOTH);\n\
+        glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, 1);\n\
+    }\n\
+\n\
+    void Display() {\n\
+        int knotSizeHoriz, knotSizeVert,\n\
+            numVertexHoriz = ' + values.horizontalVertex + ',\n\
+            numVertexVert = ' + values.verticalVertex + ',\n\
+            rankHoriz = ' + values.horizontalRank + ',\n\
+            rankVert = ' + values.verticalRank + ';\n\
+\n\
+        knotSizeHoriz = ' + (values.horizontalVertex + values.horizontalRank).toString() + ';\n\
+        GLfloat knotHoriz[] = {\n\
+            ' + getKnots(values.horizontalVertex, values.horizontalRank).join(', ') + '\n\
+        };\n\
+\n\
+        knotSizeVert = ' + (values.verticalVertex + values.verticalRank).toString() + ';\n\
+        GLfloat knotVert[] = {\n\
+            ' + getKnots(values.verticalVertex, values.verticalRank).join(', ') + '\n\
+        };\n\
+\n\
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);\n\
+\n\
+        glRotatef(0.5, 1.0, -1.0, 1.0);\n\
+        glColor3f(' + values.colorSurface.r + ', ' + values.colorSurface.g + ', ' + values.colorSurface.b + ');\n\
+        gluBeginSurface(theNurb);\n\
+        gluNurbsSurface(theNurb, knotSizeHoriz, knotHoriz, knotSizeVert, knotVert, numVertexVert * 4, 4, &ctlarray[0][0][0], rankHoriz, rankVert, GL_MAP2_VERTEX_4);\n\
+        gluEndSurface(theNurb);\n\
+        glutPostRedisplay();\n\
+        glutSwapBuffers();\n\
+    }\n\
+\n\
+    void main() {\n\
+        glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);\n\
+        glutInitWindowSize(700, 700);\n\
+        glutInitWindowPosition(100, 100);\n\
+        glutCreateWindow(" ");\n\
+        init();\n\
+        glutDisplayFunc(Display);\n\
+        glutMainLoop();\n\
+    }';
+        }
+
     fields.resultArea.text(resultCode);
     });
 });
